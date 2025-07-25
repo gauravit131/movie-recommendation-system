@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Recommender</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loader {
+            border-top-color: #3498db;
+            -webkit-animation: spin 1s linear infinite;
+            animation: spin 1s linear infinite;
+        }
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #autocomplete-list {
+            border: 1px solid #ddd;
+            max-height: 200px;
+            overflow-y: auto;
+            position: absolute;
+            width: calc(100% - 2rem);
+            background-color: white;
+            z-index: 10;
+        }
+        #autocomplete-list div {
+            padding: 10px;
+            cursor: pointer;
+        }
+        #autocomplete-list div:hover {
+            background-color: #f1f1f1;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div class="container mx-auto px-4 py-8 md:py-16">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl md:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">Movie Recommendation Engine</h1>
+            <p class="text-lg text-gray-400 max-w-2xl mx-auto">Enter a movie you like, and we'll suggest others you might enjoy. Discover your next favorite film!</p>
+        </header>
+
+        <main>
+            <div class="max-w-xl mx-auto bg-gray-800 p-8 rounded-2xl shadow-2xl">
+                <div class="relative">
+                    <input type="text" id="movie-input" class="w-full bg-gray-700 text-white border-2 border-gray-600 rounded-lg py-3 px-4 focus:outline-none focus:border-blue-500 transition duration-300" placeholder="e.g., The Dark Knight">
+                    <div id="autocomplete-list" class="hidden mt-1 rounded-lg shadow-lg"></div>
+                </div>
+                <button id="recommend-btn" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-4 rounded-lg mt-6 hover:from-blue-600 hover:to-purple-700 transition duration-300 ease-in-out transform hover:scale-105 flex items-center justify-center">
+                    <span id="btn-text">Get Recommendations</span>
+                    <div id="loader" class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-6 w-6 ml-3 hidden"></div>
+                </button>
+            </div>
+
+            <div id="recommendations" class="mt-12 max-w-4xl mx-auto">
+                <!-- Recommendations will be injected here -->
+            </div>
+            <div id="error-message" class="mt-8 text-center text-red-400 font-semibold"></div>
+        </main>
+    </div>
+
+    <script>
+        const movieInput = document.getElementById('movie-input');
+        const recommendBtn = document.getElementById('recommend-btn');
+        const recommendationsDiv = document.getElementById('recommendations');
+        const errorMessageDiv = document.getElementById('error-message');
+        const loader = document.getElementById('loader');
+        const btnText = document.getElementById('btn-text');
+        const autocompleteList = document.getElementById('autocomplete-list');
+
+        let movieTitles = [];
+
+        // Fetch all movie titles for autocomplete
+        async function fetchMovieTitles() {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/movies');
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                movieTitles = data.titles;
+            } catch (error) {
+                console.error('Error fetching movie titles:', error);
+                errorMessageDiv.textContent = 'Could not load movie list for autocomplete.';
+            }
+        }
+        
+        fetchMovieTitles();
+
+        movieInput.addEventListener('input', () => {
+            const value = movieInput.value.toLowerCase();
+            autocompleteList.innerHTML = '';
+            if (!value) {
+                autocompleteList.classList.add('hidden');
+                return;
+            }
+
+            const filteredTitles = movieTitles
+                .filter(title => title.toLowerCase().includes(value))
+                .slice(0, 5);
+
+            if (filteredTitles.length > 0) {
+                autocompleteList.classList.remove('hidden');
+                filteredTitles.forEach(title => {
+                    const item = document.createElement('div');
+                    item.textContent = title;
+                    item.addEventListener('click', () => {
+                        movieInput.value = title;
+                        autocompleteList.classList.add('hidden');
+                    });
+                    autocompleteList.appendChild(item);
+                });
+            } else {
+                autocompleteList.classList.add('hidden');
+            }
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (e.target !== movieInput) {
+                autocompleteList.classList.add('hidden');
+            }
+        });
+
+
+        recommendBtn.addEventListener('click', async () => {
+            const movieName = movieInput.value;
+            if (!movieName) {
+                errorMessageDiv.textContent = 'Please enter a movie name.';
+                return;
+            }
+
+            // UI loading state
+            loader.classList.remove('hidden');
+            btnText.textContent = 'Finding...';
+            recommendBtn.disabled = true;
+            recommendationsDiv.innerHTML = '';
+            errorMessageDiv.textContent = '';
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/recommend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ movie: movieName }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayRecommendations(data.recommendations);
+                } else {
+                    errorMessageDiv.textContent = data.error || 'An unknown error occurred.';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                errorMessageDiv.textContent = 'Failed to connect to the recommendation service. Please ensure the backend is running.';
+            } finally {
+                // Reset UI
+                loader.classList.add('hidden');
+                btnText.textContent = 'Get Recommendations';
+                recommendBtn.disabled = false;
+            }
+        });
+
+        function displayRecommendations(movies) {
+            if (!movies || movies.length === 0) {
+                recommendationsDiv.innerHTML = '<p class="text-center text-gray-400">No recommendations found.</p>';
+                return;
+            }
+
+            const recommendationsHTML = `
+                <h2 class="text-2xl font-bold text-center mb-8">Recommended Movies</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                    ${movies.map(movie => `
+                        <div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition duration-300">
+                           <div class="h-64 bg-gray-700 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.55a2 2 0 01.45 2.42l-2.42 4.55A2 2 0 0115.5 18H8.5a2 2 0 01-2-2v- yatırımcı.55a2 2 0 01.45-1.42L9 10m6 0V6a2 2 0 00-2-2H9a2 2 0 00-2 2v4m6 0l-2.5-5M9 10l2.5-5" /></svg>
+                            </div>
+                            <div class="p-4">
+                                <h3 class="font-bold text-lg">${movie}</h3>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            recommendationsDiv.innerHTML = recommendationsHTML;
+        }
+    </script>
+</body>
+</html>
